@@ -25,10 +25,11 @@
             llvm
             libGL
             vulkan-loader
+            stdenv.cc.cc.lib
         ];        
         in {
         devShells.default = pkgs.mkShell {
-          stdenv = pkgs.clangStdenv;
+          # stdenv = pkgs.clangStdenv;
           packages = with pkgs; [
             bacon
             valgrind

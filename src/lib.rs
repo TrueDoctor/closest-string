@@ -1,6 +1,11 @@
 use burn::prelude::*;
 use core::fmt;
-use std::{cmp::Reverse, collections::HashSet, convert::Into, io::BufRead};
+use std::{
+    cmp::Reverse,
+    collections::{BinaryHeap, HashSet},
+    convert::Into,
+    io::BufRead,
+};
 
 pub fn parse_input(reader: impl BufRead) -> Instance<B> {
     let lines = reader.lines().skip(1);
@@ -124,7 +129,10 @@ impl<B: Backend> Instance<B> {
         let max_values = max.to_data();
         // let max = max.into_scalar();
         // let max: i32 = max.to_i32();
-        max_values.to_vec().unwrap()
+        let values: Vec<i32> = max_values.to_vec().unwrap();
+        let max_values = values.into_iter().map(|x| x as i32).collect();
+        max_values
+        // max_values.to_vec().unwrap()
     }
 
     pub fn restrict_instance_to_d_core(&self, d: usize) -> (Instance<B>, Vec<bool>) {
@@ -149,61 +157,88 @@ impl<B: Backend> Instance<B> {
     pub fn solve(&self) -> Guess {
         let guess = self.initial_guess();
         let (distance, _) = self.max_distance_to(&guess);
-        let mut stack = vec![(guess.clone(), vec![false; guess.len()], distance)];
-        let mut min = guess.len();
+        let mut stack = BinaryHeap::new();
+        stack.push(Reverse((distance, guess.clone(), vec![false; guess.len()])));
+        let mut min = distance;
         let mut best_guess = guess.clone();
         let min_possible_distance = (self.find_max_pairwise_d() + 1) / 2;
+        let mut iterations = 0u128;
+        // let mut delay = Vec::new();
 
-        while let Some((guess, fixed, d)) = stack.pop() {
-            if d > min + fixed.iter().filter(|&&x| !x).count() {
-                continue;
-            }
-            // dbg!(d);
-            let (d, worst) = self.max_distance_to(&guess);
-            // eprintln!("guess: {:?}", guess);
-            // eprintln!("worst: {:?}", worst);
-            // eprintln!("{:?}", worst);
-            let mut diff_vec = guess.iter().diff_vec(worst.iter());
-            diff_vec.iter_mut().zip(&fixed).for_each(|(a, b)| *a &= !b);
+        loop {
+            let mut mutations: Vec<(Vec<i32>, Vec<bool>, usize, usize)> = Vec::new();
 
-            let mut mutations: Vec<Vec<i32>> = Vec::with_capacity(d);
-            let mut indices = Vec::new();
-            while let Some(pos) = diff_vec.iter().position(|&x| x) {
-                diff_vec[pos] = false;
-                let mut new_guess = guess.clone();
-                new_guess[pos] = worst[pos];
-                let mut new_fixed = fixed.clone();
-                new_fixed[pos] = true;
-                indices.push(new_fixed);
-                mutations.push(new_guess.iter().map(|&x| x as i32).collect());
-            }
-            let mutations: Vec<_> = mutations.iter().map(|x| x.as_slice()).collect();
-            if mutations.is_empty() {
+            let mut enqueue = |guess: Vec<u8>,
+                               fixed: Vec<bool>,
+                               stack: &BinaryHeap<_>,
+                               mutations: &mut Vec<_>| {
+                let free_positions = fixed.iter().filter(|&&x| !x).count();
+
+                iterations += 1;
+                if iterations % 10000 == 0 {
+                    dbg!(stack.len(), free_positions);
+                }
+                // dbg!(d);
+                let (d, worst) = self.max_distance_to(&guess);
+                if d + 1 >= min + free_positions {
+                    return;
+                }
+                // eprintln!("guess: {:?}", guess);
+                // eprintln!("worst: {:?}", worst);
+                // eprintln!("{:?}", worst);
+                let mut diff_vec = guess.iter().diff_vec(worst.iter());
+                diff_vec.iter_mut().zip(&fixed).for_each(|(a, b)| *a &= !b);
                 if d < min {
                     dbg!(d);
                     println!("guess: {:?}", guess);
                     min = d;
                     best_guess = guess.clone();
                 }
-                if min <= min_possible_distance {
-                    break;
+
+                // let mut indices = Vec::new();
+                while let Some(pos) = diff_vec.iter().position(|&x| x) {
+                    diff_vec[pos] = false;
+                    let mut new_guess = guess.clone();
+                    new_guess[pos] = worst[pos];
+                    let mut new_fixed = fixed.clone();
+                    new_fixed[pos] = true;
+                    // indices.push(new_fixed);
+                    mutations.push((
+                        new_guess.iter().map(|&x| x as i32).collect(),
+                        new_fixed,
+                        free_positions,
+                        d,
+                    ));
                 }
+            };
+
+            while mutations.len() < 128 && !stack.is_empty() {
+                let Some(Reverse((_, guess, fixed))) = stack.pop() else {
+                    continue;
+                };
+                enqueue(guess, fixed, &stack, &mut mutations);
+            }
+
+            if min <= min_possible_distance {
+                break;
+            }
+            let slices: Vec<_> = mutations.iter().map(|(x, _, _, _)| x.as_slice()).collect();
+            if mutations.is_empty() {
                 continue;
             }
-            let distances = self.distances_to(&mutations);
+            let distances = self.distances_to(&slices);
             // eprintln!("distances: {:?}", distances);
-            let mut results: Vec<_> = mutations
-                .iter()
-                .zip(indices.iter().zip(distances))
-                .collect();
-            results.sort_unstable_by_key(|(_, (_, d))| Reverse(*d));
+            let results = mutations.iter().zip(distances);
             // dbg!(&results);
-            for (guess, (fixed, d)) in results {
-                stack.push((
+            for ((guess, fixed, free_positions, d), new_d) in results {
+                if new_d > *d as i32 || new_d as usize + 1 >= min + free_positions {
+                    continue;
+                }
+                stack.push(Reverse((
+                    (new_d as usize) * 100 - ((*free_positions as f32).sqrt() * 20.) as usize,
                     guess.iter().map(|&x| x as u8).collect(),
                     fixed.clone(),
-                    d as usize,
-                ))
+                )))
             }
         }
         best_guess
