@@ -212,7 +212,7 @@ impl<B: Backend> Instance<B> {
                 }
             };
 
-            while mutations.len() < 128 && !stack.is_empty() {
+            while mutations.len() < 32 && !stack.is_empty() {
                 let Some(Reverse((_, guess, fixed))) = stack.pop() else {
                     continue;
                 };
