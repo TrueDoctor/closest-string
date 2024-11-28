@@ -212,6 +212,10 @@ impl<B: Backend> Instance<B> {
                 }
             };
 
+            if stack.len() > 4000 {
+                break;
+            }
+
             while mutations.len() < 32 && !stack.is_empty() {
                 let Some(Reverse((_, guess, fixed))) = stack.pop() else {
                     continue;
